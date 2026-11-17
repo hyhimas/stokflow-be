@@ -36,5 +36,8 @@ class ProductResponse(ProductBase):
         from_attributes = True
 
 class ProductListResponse(BaseModel):
-    total: int
+    total: int = Field(..., description="Total seluruh produk yang cocok")
+    page: int = Field(..., description="Halaman saat ini")
+    size: int = Field(..., description="Jumlah item per halaman")
+    total_pages: int = Field(..., description="Total jumlah halaman yang tersedia")
     items: List[ProductResponse]

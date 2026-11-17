@@ -46,5 +46,8 @@ class TransactionResponse(BaseModel):
         from_attributes = True
 
 class TransactionListResponse(BaseModel):
-    total: int
+    total: int = Field(..., description="Total seluruh transaksi")
+    page: int = Field(..., description="Halaman saat ini")
+    size: int = Field(..., description="Jumlah item per halaman")
+    total_pages: int = Field(..., description="Total jumlah halaman")
     items: List[TransactionResponse]

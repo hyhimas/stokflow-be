@@ -17,13 +17,13 @@ router = APIRouter(prefix="/products", tags=["Master Produk (Products)"])
     "",
     response_model=ProductListResponse,
     summary="Daftar Produk & Pencarian",
-    description="Mengambil daftar master produk untuk bisnis saat ini. Mendukung pencarian instan nama atau barcode (FR-09)."
+    description="Mengambil daftar master produk untuk bisnis saat ini dengan pagination (page & size). Mendukung pencarian instan nama atau barcode (FR-09)."
 )
 def list_products(
     search: Optional[str] = Query(None, description="Kata kunci pencarian nama atau SKU/Barcode"),
     status: Optional[str] = Query("ACTIVE", description="Filter status: ACTIVE, ARCHIVED, atau ALL"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    page: int = Query(1, ge=1, description="Nomor halaman (mulai dari 1)"),
+    size: int = Query(20, ge=1, le=100, description="Jumlah barang per halaman (default: 20, max: 100)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -44,10 +44,16 @@ def list_products(
         )
 
     total = query.count()
-    items = query.order_by(Product.name.asc()).offset(skip).limit(limit).all()
+    offset = (page - 1) * size
+    total_pages = (total + size - 1) // size if total > 0 else 1
+
+    items = query.order_by(Product.name.asc()).offset(offset).limit(size).all()
 
     return ProductListResponse(
         total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
         items=[ProductResponse.model_validate(p) for p in items]
     )
 

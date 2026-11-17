@@ -159,12 +159,12 @@ def create_transaction(
     "",
     response_model=TransactionListResponse,
     summary="Riwayat Transaksi Stok",
-    description="Melihat riwayat transaksi STOCK_IN dan STOCK_OUT berdasarkan urutan waktu terbaru (FR-21, FR-22)."
+    description="Melihat riwayat transaksi STOCK_IN dan STOCK_OUT berdasarkan urutan waktu terbaru dengan pagination (FR-21, FR-22)."
 )
 def list_transactions(
     type: Optional[str] = Query(None, description="Filter jenis transaksi: STOCK_IN atau STOCK_OUT"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
+    page: int = Query(1, ge=1, description="Nomor halaman (mulai dari 1)"),
+    size: int = Query(20, ge=1, le=100, description="Jumlah transaksi per halaman (default: 20, max: 100)"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -174,10 +174,16 @@ def list_transactions(
         query = query.filter(StockTransaction.type == type.upper())
 
     total = query.count()
-    records = query.order_by(StockTransaction.transaction_at.desc()).offset(skip).limit(limit).all()
+    offset = (page - 1) * size
+    total_pages = (total + size - 1) // size if total > 0 else 1
+
+    records = query.order_by(StockTransaction.transaction_at.desc()).offset(offset).limit(size).all()
 
     return TransactionListResponse(
         total=total,
+        page=page,
+        size=size,
+        total_pages=total_pages,
         items=[format_transaction_response(t) for t in records]
     )
 
