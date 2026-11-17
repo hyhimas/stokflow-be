@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
@@ -44,14 +45,10 @@ app.include_router(products_router, prefix="/api/v1")
 app.include_router(transactions_router, prefix="/api/v1")
 app.include_router(sync_router, prefix="/api/v1")
 
-@app.get("/", tags=["Health Check"])
+@app.get("/", include_in_schema=False)
 def root():
-    return {
-        "status": "online",
-        "app": "STOKFLOW API",
-        "version": "1.0.0",
-        "documentation": "/docs"
-    }
+    # Otomatis arahkan siapa pun yang membuka URL utama ke Swagger /docs
+    return RedirectResponse(url="/docs")
 
 @app.get("/health", tags=["Health Check"])
 def health_check():

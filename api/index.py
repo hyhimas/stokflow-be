@@ -1,7 +1,10 @@
 import sys
 import os
 
-# Pastikan folder root terbaca oleh runtime Python Vercel
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Pastikan root folder terbaca oleh Python runtime Vercel
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(current_dir)
+if root_dir not in sys.path:
+    sys.path.insert(0, root_dir)
 
 from app.main import app
