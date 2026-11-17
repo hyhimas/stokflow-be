@@ -4,7 +4,7 @@ from typing import Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from app.database import get_db
 from app.models.user import User
@@ -158,11 +158,17 @@ def create_transaction(
 @router.get(
     "",
     response_model=TransactionListResponse,
-    summary="Riwayat Transaksi Stok",
-    description="Melihat riwayat transaksi STOCK_IN dan STOCK_OUT berdasarkan urutan waktu terbaru dengan pagination (FR-21, FR-22)."
+    summary="Riwayat Transaksi Stok, Pencarian & Filter",
+    description="Melihat riwayat transaksi STOCK_IN dan STOCK_OUT dengan filter jenis transaksi, tanggal, produk, pencarian nomor transaksi/catatan, serta pengurutan ASC/DESC (FR-21, FR-22)."
 )
 def list_transactions(
-    type: Optional[str] = Query(None, description="Filter jenis transaksi: STOCK_IN atau STOCK_OUT"),
+    search: Optional[str] = Query(None, description="Pencarian nomor transaksi (contoh: TRX-2026-0001) atau catatan transaksi"),
+    type: Optional[str] = Query(None, description="Filter jenis transaksi: STOCK_IN, STOCK_OUT, atau kosongkan untuk semua"),
+    product_id: Optional[UUID] = Query(None, description="Filter riwayat transaksi untuk produk tertentu"),
+    start_date: Optional[datetime] = Query(None, description="Filter tanggal mulai transaksi (ISO format: YYYY-MM-DDTHH:MM:SS)"),
+    end_date: Optional[datetime] = Query(None, description="Filter tanggal akhir transaksi (ISO format: YYYY-MM-DDTHH:MM:SS)"),
+    sort_by: Optional[str] = Query("transaction_at", description="Urutkan berdasarkan: transaction_at, created_at, transaction_number"),
+    order: Optional[str] = Query("desc", description="Arah pengurutan: desc (terbaru dulu - default) atau asc (terlama dulu)"),
     page: int = Query(1, ge=1, description="Nomor halaman (mulai dari 1)"),
     size: int = Query(20, ge=1, le=100, description="Jumlah transaksi per halaman (default: 20, max: 100)"),
     db: Session = Depends(get_db),
@@ -170,14 +176,48 @@ def list_transactions(
 ):
     query = db.query(StockTransaction).filter(StockTransaction.business_id == current_user.business_id)
 
+    # 1. Filter Tipe Transaksi (STOCK_IN / STOCK_OUT)
     if type and type.upper() in ["STOCK_IN", "STOCK_OUT"]:
         query = query.filter(StockTransaction.type == type.upper())
 
+    # 2. Filter Berdasarkan Produk Tertentu
+    if product_id:
+        query = query.join(StockTransactionItem).filter(StockTransactionItem.product_id == product_id)
+
+    # 3. Filter Rentang Waktu (Tanggal)
+    if start_date:
+        query = query.filter(StockTransaction.transaction_at >= start_date)
+    if end_date:
+        query = query.filter(StockTransaction.transaction_at <= end_date)
+
+    # 4. Pencarian Nomor Transaksi atau Catatan
+    if search and search.strip():
+        search_filter = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                StockTransaction.transaction_number.ilike(search_filter),
+                StockTransaction.notes.ilike(search_filter)
+            )
+        )
+
+    # 5. Sorting (Ascending / Descending)
+    sort_column_map = {
+        "transaction_at": StockTransaction.transaction_at,
+        "created_at": StockTransaction.created_at,
+        "transaction_number": StockTransaction.transaction_number,
+    }
+    sort_column = sort_column_map.get(sort_by.lower() if sort_by else "transaction_at", StockTransaction.transaction_at)
+    if order and order.lower() == "asc":
+        query = query.order_by(sort_column.asc())
+    else:
+        query = query.order_by(sort_column.desc())
+
+    # 6. Pagination
     total = query.count()
     offset = (page - 1) * size
     total_pages = (total + size - 1) // size if total > 0 else 1
 
-    records = query.order_by(StockTransaction.transaction_at.desc()).offset(offset).limit(size).all()
+    records = query.offset(offset).limit(size).all()
 
     return TransactionListResponse(
         total=total,

@@ -16,12 +16,17 @@ router = APIRouter(prefix="/products", tags=["Master Produk (Products)"])
 @router.get(
     "",
     response_model=ProductListResponse,
-    summary="Daftar Produk & Pencarian",
-    description="Mengambil daftar master produk untuk bisnis saat ini dengan pagination (page & size). Mendukung pencarian instan nama atau barcode (FR-09)."
+    summary="Daftar Produk, Pencarian & Filter",
+    description="Mengambil daftar master produk dengan filter lengkap (status, stok, satuan), pencarian nama/barcode, serta pengurutan ASC/DESC (FR-09, FR-10)."
 )
 def list_products(
-    search: Optional[str] = Query(None, description="Kata kunci pencarian nama atau SKU/Barcode"),
+    search: Optional[str] = Query(None, description="Pencarian kata kunci nama produk atau kode barcode/SKU"),
     status: Optional[str] = Query("ACTIVE", description="Filter status: ACTIVE, ARCHIVED, atau ALL"),
+    unit: Optional[str] = Query(None, description="Filter satuan produk (contoh: pcs, dus, kg, pack)"),
+    min_stock: Optional[int] = Query(None, ge=0, description="Filter stok minimal"),
+    max_stock: Optional[int] = Query(None, ge=0, description="Filter stok maksimal (contoh: 0 untuk stok habis)"),
+    sort_by: Optional[str] = Query("name", description="Urutkan berdasarkan: name, current_stock, selling_price, cost_price, created_at"),
+    order: Optional[str] = Query("asc", description="Arah pengurutan: asc (A-Z / terkecil) atau desc (Z-A / terbesar)"),
     page: int = Query(1, ge=1, description="Nomor halaman (mulai dari 1)"),
     size: int = Query(20, ge=1, le=100, description="Jumlah barang per halaman (default: 20, max: 100)"),
     db: Session = Depends(get_db),
@@ -29,12 +34,22 @@ def list_products(
 ):
     query = db.query(Product).filter(Product.business_id == current_user.business_id)
 
-    # Filter status
+    # 1. Filter Status
     if status and status.upper() != "ALL":
         query = query.filter(Product.status == status.upper())
 
-    # Pencarian case-insensitive (FR-09)
-    if search:
+    # 2. Filter Satuan (Unit)
+    if unit and unit.strip():
+        query = query.filter(Product.unit.ilike(unit.strip()))
+
+    # 3. Filter Rentang Stok
+    if min_stock is not None:
+        query = query.filter(Product.current_stock >= min_stock)
+    if max_stock is not None:
+        query = query.filter(Product.current_stock <= max_stock)
+
+    # 4. Pencarian Case-Insensitive (Nama atau Barcode)
+    if search and search.strip():
         search_filter = f"%{search.strip()}%"
         query = query.filter(
             or_(
@@ -43,11 +58,26 @@ def list_products(
             )
         )
 
+    # 5. Sorting (Ascending / Descending)
+    sort_column_map = {
+        "name": Product.name,
+        "current_stock": Product.current_stock,
+        "selling_price": Product.selling_price,
+        "cost_price": Product.cost_price,
+        "created_at": Product.created_at,
+    }
+    sort_column = sort_column_map.get(sort_by.lower() if sort_by else "name", Product.name)
+    if order and order.lower() == "desc":
+        query = query.order_by(sort_column.desc())
+    else:
+        query = query.order_by(sort_column.asc())
+
+    # 6. Pagination
     total = query.count()
     offset = (page - 1) * size
     total_pages = (total + size - 1) // size if total > 0 else 1
 
-    items = query.order_by(Product.name.asc()).offset(offset).limit(size).all()
+    items = query.offset(offset).limit(size).all()
 
     return ProductListResponse(
         total=total,
