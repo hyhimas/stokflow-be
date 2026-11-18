@@ -1,0 +1,776 @@
+openapi: 3.0.3
+info:
+  title: StokFlow UMKM API
+  version: 1.0.0
+  description: >
+    Production-ready REST API Backend untuk aplikasi mobile **StokFlow UMKM (MVP)**.
+    Mendukung model arsitektur Multi-Business SaaS (Shared Database, Shared Schema dengan isolasi ketat `business_id`)
+    dan sinkronisasi offline-first dengan database PostgreSQL Neon Serverless.
+servers:
+  - url: /
+    description: Current Server Environment (Local & Vercel Serverless)
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Masukkan token JWT yang didapatkan dari endpoint login atau register (tanpa menulis kata 'Bearer').
+
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: Operasi berhasil dijalankan
+        data:
+          type: object
+        errors:
+          type: array
+          items:
+            type: string
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+          example: 150
+        page:
+          type: integer
+          example: 1
+        limit:
+          type: integer
+          example: 20
+        total_pages:
+          type: integer
+          example: 8
+
+    Business:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 820ed76b-f4a3-469a-98f7-697a00e69a27
+        code:
+          type: string
+          example: TMJ01
+        name:
+          type: string
+          example: Toko Maju Jaya
+        business_type:
+          type: string
+          example: ritel
+        address:
+          type: string
+          example: Jl. Merdeka No. 10, Jakarta
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, SUSPENDED]
+          example: ACTIVE
+        created_at:
+          type: string
+          format: date-time
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 443650a6-5305-4aec-91e0-cf4da8fdeb61
+        business_id:
+          type: string
+          format: uuid
+          example: 820ed76b-f4a3-469a-98f7-697a00e69a27
+        name:
+          type: string
+          example: Budi Santoso
+        phone:
+          type: string
+          example: "081234567890"
+        email:
+          type: string
+          example: budi@tokomajujaya.com
+        role:
+          type: string
+          enum: [SUPER_ADMIN, OWNER, STAFF]
+          example: OWNER
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE]
+          example: ACTIVE
+        last_login_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 9a7e6b5c-4d3f-2a1e-0b9c-8d7e6f5a4b3c
+        business_id:
+          type: string
+          format: uuid
+        sku_barcode:
+          type: string
+          example: "8992753123456"
+        name:
+          type: string
+          example: Kopi Susu Gula Aren 250ml
+        unit:
+          type: string
+          example: pcs
+        cost_price:
+          type: number
+          example: 8500
+        selling_price:
+          type: number
+          example: 15000
+        current_stock:
+          type: integer
+          example: 25
+        status:
+          type: string
+          enum: [ACTIVE, ARCHIVED]
+          example: ACTIVE
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    StockTransactionItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_id:
+          type: string
+          format: uuid
+        quantity:
+          type: integer
+          example: 10
+        unit_cost_snapshot:
+          type: number
+          example: 8500
+        product:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              example: Kopi Susu Gula Aren 250ml
+            sku_barcode:
+              type: string
+              example: "8992753123456"
+            unit:
+              type: string
+              example: pcs
+
+    StockTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        business_id:
+          type: string
+          format: uuid
+        transaction_number:
+          type: string
+          example: TMJ01-2026-000001
+        type:
+          type: string
+          enum: [STOCK_IN, STOCK_OUT]
+          example: STOCK_IN
+        notes:
+          type: string
+          example: Restock mingguan supplier
+        created_by:
+          type: string
+          format: uuid
+        transaction_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        creator:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              example: Budi Santoso
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/StockTransactionItem'
+
+paths:
+  /health:
+    get:
+      summary: Health Check
+      description: Memeriksa koneksi server Express dan database Neon PostgreSQL
+      tags: [System]
+      responses:
+        200:
+          description: Server dan database aktif
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: StokFlow API is running smoothly
+                  database:
+                    type: string
+                    example: connected (Neon PostgreSQL)
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/auth/register:
+    post:
+      summary: Registrasi Pemilik Usaha (Owner) & Toko Baru (FR-01)
+      description: Mendaftarkan toko baru beserta akun pemilik usaha dengan role OWNER. Menghasilkan JWT token.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, password, business_name, business_code]
+              properties:
+                name:
+                  type: string
+                  example: Budi Santoso
+                email:
+                  type: string
+                  format: email
+                  example: budi@tokomajujaya.com
+                phone:
+                  type: string
+                  example: "081234567890"
+                password:
+                  type: string
+                  format: password
+                  example: Rahasia123!
+                business_name:
+                  type: string
+                  example: Toko Maju Jaya
+                business_code:
+                  type: string
+                  example: TMJ01
+                business_type:
+                  type: string
+                  example: ritel
+                address:
+                  type: string
+                  example: Jl. Merdeka No. 10, Jakarta
+      responses:
+        201:
+          description: Registrasi berhasil
+        400:
+          description: Validasi input gagal
+        409:
+          description: Kode bisnis, email, atau no HP sudah terdaftar
+
+  /api/auth/login:
+    post:
+      summary: Login Pengguna (FR-01, FR-03)
+      description: Masuk ke sistem menggunakan Email atau Nomor HP dan Kata Sandi.
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier:
+                  type: string
+                  description: Email atau nomor HP terdaftar
+                  example: budi@tokomajujaya.com
+                password:
+                  type: string
+                  format: password
+                  example: Rahasia123!
+      responses:
+        200:
+          description: Login berhasil, token JWT dikembalikan
+        401:
+          description: Identitas atau kata sandi salah
+        403:
+          description: Akun pengguna atau layanan bisnis nonaktif
+
+  /api/auth/me:
+    get:
+      summary: Profil Pengguna & Ringkasan Toko
+      description: Mendapatkan informasi akun user yang login beserta statistik ringkasan toko.
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: Profil berhasil diambil
+        401:
+          description: Token tidak valid atau tidak ditemukan
+
+  /api/auth/logout:
+    post:
+      summary: Logout Pengguna (FR-02)
+      description: Logout dari sesi aplikasi. Klien Flutter menghapus token dari secure storage.
+      tags: [Auth]
+      security:
+        - BearerAuth: []
+      responses:
+        200:
+          description: Logout berhasil
+
+  /api/products:
+    get:
+      summary: Daftar Master Produk & Pencarian (FR-09, FR-10, FR-11)
+      description: Mengambil daftar produk toko dengan pagination, pencarian nama/barcode, filter stok, dan sorting.
+      tags: [Products]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Kata kunci pencarian nama produk atau barcode (case-insensitive)
+        - in: query
+          name: barcode
+          schema:
+            type: string
+          description: Pencarian presisi untuk scan kamera barcode HP (EAN-13, UPC, QR)
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [ACTIVE, ARCHIVED, ALL]
+            default: ACTIVE
+          description: Filter status produk
+        - in: query
+          name: stock_status
+          schema:
+            type: string
+            enum: [AVAILABLE, EMPTY]
+          description: Filter stok tersedia (> 0) atau habis (=== 0)
+        - in: query
+          name: unit
+          schema:
+            type: string
+          description: Filter satuan produk (contoh pcs, dus, kg, pack)
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [name, current_stock, selling_price, cost_price, updated_at, created_at]
+            default: updated_at
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+      responses:
+        200:
+          description: Daftar produk berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+    post:
+      summary: Tambah Master Produk Baru (FR-04, FR-05, FR-06, FR-07)
+      description: Menambahkan produk baru. Memvalidasi keunikan barcode per toko.
+      tags: [Products]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, unit]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  description: UUID v4 opsional yang di-generate dari Flutter
+                sku_barcode:
+                  type: string
+                  example: "8992753123456"
+                name:
+                  type: string
+                  example: Kopi Susu Gula Aren 250ml
+                unit:
+                  type: string
+                  example: pcs
+                cost_price:
+                  type: number
+                  example: 8500
+                selling_price:
+                  type: number
+                  example: 15000
+                current_stock:
+                  type: integer
+                  example: 50
+      responses:
+        201:
+          description: Produk berhasil dibuat
+        409:
+          description: Kode barcode sudah digunakan oleh produk lain di toko ini
+
+  /api/products/{id}:
+    get:
+      summary: Detail Produk & Riwayat Mutasi Stok
+      description: Mengambil data detail produk beserta 10 mutasi stok terakhir.
+      tags: [Products]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Detail produk ditemukan
+        404:
+          description: Produk tidak ditemukan
+
+    put:
+      summary: Perbarui Data Produk (FR-08)
+      description: Memperbarui nama, unit, harga, barcode, atau stok produk.
+      tags: [Products]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                sku_barcode:
+                  type: string
+                unit:
+                  type: string
+                cost_price:
+                  type: number
+                selling_price:
+                  type: number
+                current_stock:
+                  type: integer
+                status:
+                  type: string
+                  enum: [ACTIVE, ARCHIVED]
+      responses:
+        200:
+          description: Informasi produk berhasil diubah
+        404:
+          description: Produk tidak ditemukan
+        409:
+          description: Barcode sudah digunakan oleh produk lain
+
+  /api/products/{id}/archive:
+    patch:
+      summary: Arsipkan Produk / Soft Delete (FR-08)
+      description: Mengubah status produk menjadi ARCHIVED agar riwayat transaksi tetap utuh (Aturan Bisnis #2).
+      tags: [Products]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Produk berhasil diarsipkan
+
+  /api/transactions:
+    get:
+      summary: Riwayat Transaksi Keluar-Masuk Stok (FR-21, FR-22)
+      description: Mengambil riwayat transaksi stok dengan pagination, filter jenis, rentang tanggal, produk, dan pencarian.
+      tags: [Transactions]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: search
+          schema:
+            type: string
+          description: Pencarian nomor transaksi, catatan, atau nama produk dalam transaksi
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [STOCK_IN, STOCK_OUT]
+          description: Filter jenis transaksi
+        - in: query
+          name: start_date
+          schema:
+            type: string
+            format: date
+          description: Tanggal awal (YYYY-MM-DD)
+        - in: query
+          name: end_date
+          schema:
+            type: string
+            format: date
+          description: Tanggal akhir (YYYY-MM-DD)
+        - in: query
+          name: product_id
+          schema:
+            type: string
+            format: uuid
+          description: Filter transaksi yang memuat produk tertentu
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [transaction_at, created_at, transaction_number]
+            default: transaction_at
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: desc
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 20
+      responses:
+        200:
+          description: Riwayat transaksi berhasil diambil
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StockTransaction'
+                  meta:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+    post:
+      summary: Catat Transaksi Barang Masuk / Keluar (FR-12, FR-13, FR-14, FR-15, FR-16, FR-17)
+      description: Mencatat transaksi stok secara atomik ACID. Mencegah stok minus saat STOCK_OUT.
+      tags: [Transactions]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, items]
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                  description: UUID idempotent dari Flutter
+                transaction_number:
+                  type: string
+                  description: Nomor transaksi opsional (dibuat otomatis jika kosong)
+                  example: TMJ01-2026-000001
+                type:
+                  type: string
+                  enum: [STOCK_IN, STOCK_OUT]
+                  example: STOCK_IN
+                notes:
+                  type: string
+                  example: Pembelian stok dari supplier
+                transaction_at:
+                  type: string
+                  format: date-time
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required: [product_id, quantity]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      product_id:
+                        type: string
+                        format: uuid
+                        example: 9a7e6b5c-4d3f-2a1e-0b9c-8d7e6f5a4b3c
+                      quantity:
+                        type: integer
+                        minimum: 1
+                        example: 10
+      responses:
+        201:
+          description: Transaksi berhasil disimpan
+        400:
+          description: Stok tidak mencukupi untuk STOCK_OUT (stok tidak boleh minus)
+        404:
+          description: Produk tidak ditemukan
+
+  /api/transactions/{id}:
+    get:
+      summary: Detail Transaksi Stok
+      description: Mengambil rincian transaksi beserta daftar seluruh item dan data pencatat.
+      tags: [Transactions]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        200:
+          description: Transaksi ditemukan
+        404:
+          description: Transaksi tidak ditemukan
+
+  /api/sync/pull:
+    get:
+      summary: Unduh Data Terbaru Cloud ke Penyimpanan Lokal HP (FR-18, FR-20)
+      description: Mengambil seluruh master produk dan transaksi terbaru sejak timestamp sinkronisasi terakhir.
+      tags: [Sync]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: last_synced_at
+          schema:
+            type: string
+            format: date-time
+          description: Waktu sinkronisasi terakhir di HP (kosongkan saat initial pull)
+      responses:
+        200:
+          description: Data berhasil ditarik
+
+  /api/sync/push:
+    post:
+      summary: Unggah Antrean Data Offline ke Cloud (FR-18, FR-19, FR-20)
+      description: Mengirim antrean produk dan transaksi berstatus PENDING dari SQLite/Drift saat HP kembali online.
+      tags: [Sync]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                products:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/Product'
+                transactions:
+                  type: array
+                  items:
+                    type: object
+                    required: [id, type, items]
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      transaction_number:
+                        type: string
+                      type:
+                        type: string
+                        enum: [STOCK_IN, STOCK_OUT]
+                      notes:
+                        type: string
+                      transaction_at:
+                        type: string
+                        format: date-time
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          required: [product_id, quantity]
+                          properties:
+                            product_id:
+                              type: string
+                              format: uuid
+                            quantity:
+                              type: integer
+      responses:
+        200:
+          description: Sinkronisasi selesai

@@ -1,0 +1,134 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum BusinessStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  OWNER
+  STAFF
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProductStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum TransactionType {
+  STOCK_IN
+  STOCK_OUT
+}
+
+model Business {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  code                  String                 @unique
+  name                  String
+  businessType          String?                @map("business_type")
+  address               String?                @db.Text
+  status                BusinessStatus         @default(ACTIVE)
+  createdAt             DateTime               @default(now()) @map("created_at")
+  updatedAt             DateTime               @updatedAt @map("updated_at")
+
+  users                 User[]
+  products              Product[]
+  stockTransactions     StockTransaction[]
+  stockTransactionItems StockTransactionItem[]
+
+  @@map("businesses")
+}
+
+model User {
+  id                String             @id @default(uuid()) @db.Uuid
+  businessId        String             @map("business_id") @db.Uuid
+  name              String
+  phone             String?            @unique
+  email             String?            @unique
+  passwordHash      String             @map("password_hash")
+  role              UserRole           @default(OWNER)
+  status            UserStatus         @default(ACTIVE)
+  lastLoginAt       DateTime?          @map("last_login_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+
+  business          Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  stockTransactions StockTransaction[]
+
+  @@index([businessId])
+  @@map("users")
+}
+
+model Product {
+  id               String                 @id @db.Uuid
+  businessId       String                 @map("business_id") @db.Uuid
+  skuBarcode       String?                @map("sku_barcode")
+  name             String
+  unit             String                 @default("pcs")
+  costPrice        Decimal                @default(0) @db.Decimal(12, 2) @map("cost_price")
+  sellingPrice     Decimal                @default(0) @db.Decimal(12, 2) @map("selling_price")
+  currentStock     Int                    @default(0) @map("current_stock")
+  status           ProductStatus          @default(ACTIVE)
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  business         Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  transactionItems StockTransactionItem[]
+
+  @@unique([businessId, skuBarcode])
+  @@index([businessId])
+  @@index([businessId, name])
+  @@map("products")
+}
+
+model StockTransaction {
+  id                String                 @id @db.Uuid
+  businessId        String                 @map("business_id") @db.Uuid
+  transactionNumber String                 @map("transaction_number")
+  type              TransactionType
+  notes             String?                @db.Text
+  createdBy         String                 @map("created_by") @db.Uuid
+  transactionAt     DateTime               @map("transaction_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  business          Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  creator           User                   @relation(fields: [createdBy], references: [id])
+  items             StockTransactionItem[]
+
+  @@unique([businessId, transactionNumber])
+  @@index([businessId, transactionAt(sort: Desc)])
+  @@map("stock_transactions")
+}
+
+model StockTransactionItem {
+  id                String           @id @db.Uuid
+  businessId        String           @map("business_id") @db.Uuid
+  transactionId     String           @map("transaction_id") @db.Uuid
+  productId         String           @map("product_id") @db.Uuid
+  quantity          Int
+  unitCostSnapshot  Decimal          @default(0) @db.Decimal(12, 2) @map("unit_cost_snapshot")
+  createdAt         DateTime         @default(now()) @map("created_at")
+
+  business          Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  transaction       StockTransaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  product           Product          @relation(fields: [productId], references: [id])
+
+  @@index([businessId])
+  @@index([transactionId])
+  @@map("stock_transaction_items")
+}
