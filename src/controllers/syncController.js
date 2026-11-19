@@ -28,7 +28,10 @@ const pullSync = async (req, res, next) => {
         take: last_synced_at ? undefined : 100, // Jika initial sync, batasi 100 transaksi terbaru
         include: {
           creator: {
-            select: { id: true, name: true },
+            select: { id: true, name: true, email: true },
+          },
+          business: {
+            select: { id: true, code: true, name: true },
           },
           items: {
             include: {

@@ -112,6 +112,15 @@ const getTransactions = async (req, res, next) => {
             select: {
               id: true,
               name: true,
+              email: true,
+              phone: true,
+            },
+          },
+          business: {
+            select: {
+              id: true,
+              code: true,
+              name: true,
             },
           },
           items: {
@@ -164,6 +173,15 @@ const getTransactionById = async (req, res, next) => {
             name: true,
             email: true,
             phone: true,
+          },
+        },
+        business: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            businessType: true,
+            address: true,
           },
         },
         items: {
@@ -226,7 +244,8 @@ const createTransaction = async (req, res, next) => {
     const existingTransaction = await prisma.stockTransaction.findUnique({
       where: { id: transactionId },
       include: {
-        creator: { select: { id: true, name: true } },
+        creator: { select: { id: true, name: true, email: true, phone: true } },
+        business: { select: { id: true, code: true, name: true } },
         items: {
           include: {
             product: {
@@ -382,6 +401,17 @@ const createTransaction = async (req, res, next) => {
 
       return {
         ...transactionRecord,
+        creator: {
+          id: req.user.id,
+          name: req.user.name,
+          email: req.user.email,
+          phone: req.user.phone,
+        },
+        business: {
+          id: req.user.business.id,
+          code: req.user.business.code,
+          name: req.user.business.name,
+        },
         items: createdItems,
       };
     });

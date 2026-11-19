@@ -220,6 +220,21 @@ components:
             name:
               type: string
               example: Budi Santoso
+            email:
+              type: string
+              example: budi@tokomajujaya.com
+        business:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
+              example: TMJ01
+            name:
+              type: string
+              example: Toko Maju Jaya
         items:
           type: array
           items:
