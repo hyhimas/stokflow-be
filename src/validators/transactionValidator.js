@@ -37,7 +37,7 @@ const getTransactionsQuerySchema = z.object({
   sort_by: z.enum(['transaction_at', 'created_at', 'transaction_number']).default('transaction_at'),
   sort_order: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
 });
 
 module.exports = {

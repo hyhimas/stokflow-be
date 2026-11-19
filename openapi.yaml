@@ -46,10 +46,10 @@ components:
           example: 1
         limit:
           type: integer
-          example: 20
+          example: 10
         total_pages:
           type: integer
-          example: 8
+          example: 15
 
     Business:
       type: object
@@ -409,7 +409,7 @@ paths:
           name: limit
           schema:
             type: integer
-            default: 20
+            default: 10
       responses:
         200:
           description: Daftar produk berhasil diambil
@@ -609,7 +609,7 @@ paths:
           name: limit
           schema:
             type: integer
-            default: 20
+            default: 10
       responses:
         200:
           description: Riwayat transaksi berhasil diambil
